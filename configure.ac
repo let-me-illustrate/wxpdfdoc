@@ -1,11 +1,11 @@
 dnl Process this script with autoconf to create configure for wxpdfdoc library
 dnl
-dnl Copyright (C) 2018-2019 Ulrich Telle <github@telle-online.de> 
+dnl Copyright (C) 2018-2021 Ulrich Telle <github@telle-online.de> 
 dnl Copyright (C) 2017 Vadim Zeitlin <vadim@wxwidgets.org>
 dnl
 dnl This file is covered by the same licence as the entire wxpdfdoc package.
 
-AC_INIT([wxpdfdoc], [0.9.8], [github@telle-online.de])
+AC_INIT([wxpdfdoc], [1.0.2], [github@telle-online.de])
 
 dnl This is the version tested with, might work with earlier ones.
 AC_PREREQ([2.69])
@@ -19,7 +19,7 @@ AM_MAINTAINER_MODE([enable])
 AM_SILENT_RULES([yes])
 
 AC_ARG_ENABLE(samples,
-             [AC_HELP_STRING([--disable-samples],
+             [AS_HELP_STRING([--disable-samples],
                              [don't build the samples])],
              [case "x${enableval}" in
                    x) ;;
@@ -31,7 +31,7 @@ AC_ARG_ENABLE(samples,
 AM_CONDITIONAL([BUILD_SAMPLES], [test -n "$BUILD_SAMPLES"])
 
 AC_ARG_ENABLE(utilities,
-             [AC_HELP_STRING([--disable-utilities],
+             [AS_HELP_STRING([--disable-utilities],
                              [don't build the utilities])],
              [case "x${enableval}" in
                    x) ;;
@@ -66,7 +66,7 @@ AC_LANG(C++)
 
 AC_ARG_VAR(WX_CONFIG, [Path to wx-config script (default: search in PATH).])
 WX_CONFIG_OPTIONS
-WX_CONFIG_CHECK([2.8.0],
+WX_CONFIG_CHECK([3.0.0],
     [],
     [AC_MSG_FAILURE([wxWidgets required but not detected.])],
     [base,core,xml]

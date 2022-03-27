@@ -47,11 +47,60 @@ GetNodeContent(const wxXmlNode *node)
 static wxString
 GetXmlAttribute(const wxXmlNode* node, const wxString& attrName, const wxString& defaultVal)
 {
-#if wxCHECK_VERSION(2,9,0)
   return node->GetAttribute(attrName, defaultVal);
-#else
-  return node->GetPropVal(attrName, defaultVal);
-#endif
+}
+
+static bool
+IsLastContentNode(wxXmlNode* node, const wxXmlNode* root, bool applyFinalVerticalSpace = true)
+{
+  while (node != NULL && node != root)
+  {
+    // If we reach a table cell node, there is no further content
+    if (node->GetName().IsSameAs("td", false))
+      return true;
+    // If we find a successor, there exists further content
+    if (node->GetNext())
+      return false;
+    node = node->GetParent();
+  }
+  // If we reach the document root, there is no further content
+  // Decide about vertical space based on requested behaviour
+  return !applyFinalVerticalSpace;
+}
+
+wxArrayDouble
+wxPdfDocument::ApplyViewport(const wxString& viewport, double width, double height)
+{
+  const wxArrayString& vpCoord = wxSplit(viewport, ' ', '\0');
+  wxArrayDouble vp(6);
+  vp[0] = 0;
+  vp[1] = 0;
+  vp[2] = width;
+  vp[3] = height;
+
+  size_t n = vpCoord.GetCount();
+  for (size_t j = 0; j < 4 && j < n; ++j)
+  {
+    if (vpCoord[j].length() > 0 ) 
+      vp[j] = wxPdfUtility::String2Double(vpCoord[j], "px", GetImageScale()) / (GetImageScale() * GetScaleFactor());
+  }
+
+  if (vp[2] <= 0) vp[2] = width;
+  if (vp[3] <= 0) vp[3] = height;
+
+  if (vp[0] > vp[2])
+  {
+    double temp = vp[0]; vp[0] = vp[2]; vp[2] = temp;
+  }
+  if (vp[1] > vp[3])
+  {
+    double temp = vp[1]; vp[1] = vp[3]; vp[3] = temp;
+  }
+
+  vp[4] = vp[2] - vp[0];
+  vp[5] = vp[3] - vp[1];
+
+  return vp;
 }
 
 // --- wxPdfCellContext
@@ -249,7 +298,7 @@ wxPdfTable::wxPdfTable(wxPdfDocument* document)
   m_nRows = 0;
   m_nCols = 0;
   m_totalWidth  = 0;
-  m_totalHeight = 0;
+  m_bodyHeight = 0;
   m_headHeight  = 0;
   m_pad = 0;
   m_headRowFirst = 0;
@@ -383,10 +432,10 @@ wxPdfTable::SetCellDimensions(double maxWidth)
   {
     m_headHeight += m_rowHeights[row];
   }
-  m_totalHeight = 0;
+  m_bodyHeight = 0;
   for (row = m_bodyRowFirst; row < m_bodyRowLast; row++)
   {
-    m_totalHeight += m_rowHeights[row];
+    m_bodyHeight += m_rowHeights[row];
   }
 
   // Determine max row heights taking row spans into account
@@ -484,7 +533,7 @@ wxPdfTable::Write()
     if (newPage)
     {
       newPage = false;
-      m_document->AddPage();
+      m_document->AddPage(m_document->GetPageOrientation(), false);
       writeHeader = m_headRowLast > m_headRowFirst;
       y = m_document->GetY();
     }
@@ -667,7 +716,7 @@ wxPdfDocument::PrepareXmlTable(wxXmlNode* node, wxPdfCellContext& context)
           wxString width = GetXmlAttribute(colChild, wxS("width"), wxS("0"));
           if (width.Length() > 0)
           {
-            colwidth = wxPdfUtility::String2Double(width);
+            colwidth = wxPdfUtility::String2Double(width, m_userUnit);
             if (colwidth < 0) colwidth = 0;
           }
           for (col = 0; col < colspan; col++)
@@ -717,7 +766,7 @@ wxPdfDocument::PrepareXmlTable(wxXmlNode* node, wxPdfCellContext& context)
           wxString height = GetXmlAttribute(rowChild, wxS("height"), wxS("0")).Lower();
           if (height.Length() > 0)
           {
-            rowMinHeight = wxPdfUtility::String2Double(height);
+            rowMinHeight = wxPdfUtility::String2Double(height, m_userUnit);
             if (rowMinHeight < 0) rowMinHeight = 0;
           }
           table->SetMinRowHeight(row, rowMinHeight);
@@ -725,7 +774,7 @@ wxPdfDocument::PrepareXmlTable(wxXmlNode* node, wxPdfCellContext& context)
           wxString maxHeight = GetXmlAttribute(rowChild, wxS("max-height"), wxS("0")).Lower();
           if (maxHeight.Length() > 0)
           {
-            rowMaxHeight = wxPdfUtility::String2Double(maxHeight);
+            rowMaxHeight = wxPdfUtility::String2Double(maxHeight, m_userUnit);
             if (rowMaxHeight < 0) rowMaxHeight = 0;
             // Maximum row height can't be smaller than minimum row height
             if (rowMaxHeight > 0 && rowMaxHeight < rowMinHeight) rowMaxHeight = rowMinHeight;
@@ -1001,7 +1050,10 @@ wxPdfDocument::PrepareXmlCell(wxXmlNode* node, wxPdfCellContext& context)
     {
       // --- Line break
       Ln();
-      //# context.AddHeight(GetLineHeight());
+      if (context.GetLastLineWidth() == 0)
+      {
+        context.AddHeight(GetLineHeight());
+      }
       context.MarkLastLine();
       context.AddLine();
     }
@@ -1019,7 +1071,8 @@ wxPdfDocument::PrepareXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       context.AppendContext(newContext);
       PrepareXmlCell(child, *newContext);
       newContext->MarkLastLine();
-      context.AddHeight(newContext->GetHeight()+GetLineHeight());
+      double verticalSpace = IsLastContentNode(child, m_xmlRoot) ? 0 : GetLineHeight();
+      context.AddHeight(newContext->GetHeight() + verticalSpace);
       Ln();
       Ln();
     }
@@ -1040,30 +1093,37 @@ wxPdfDocument::PrepareXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       wxString src = GetXmlAttribute(child, wxS("src"), wxS(""));
       if (src.Length() > 0)
       {
-        wxSize imageSize = GetImageSize(src);
-        double wImage = ((double) imageSize.GetWidth()) / (GetImageScale() * GetScaleFactor());
-        double hImage = ((double) imageSize.GetHeight()) / (GetImageScale() * GetScaleFactor());
         double width = 0;
         double height = 0;
         wxString strWidth = GetXmlAttribute(child, wxS("width"), wxS("0"));
         wxString strHeight = GetXmlAttribute(child, wxS("height"), wxS("0"));
         if (strWidth.Length() > 0)
         {
-          width = wxPdfUtility::String2Double(strWidth);
+          width = wxPdfUtility::String2Double(strWidth, "px", GetImageScale());
         }
         if (strHeight.Length() > 0)
         {
-          height = wxPdfUtility::String2Double(strHeight);
+          height = wxPdfUtility::String2Double(strHeight, "px", GetImageScale());
         }
         double w = ((double) width) / (GetImageScale() * GetScaleFactor());
         double h = ((double) height) / (GetImageScale() * GetScaleFactor());
         // TODO: handle image
         // line height, position, margins etc.
-        if (h <= 0 && wImage > 0)
+        if (w <= 0 || h <= 0)
         {
-          h = (w <= 0) ? hImage : hImage * (w / wImage);
+          wxSize imageSize = GetImageSize(src);
+          double wImage = ((double)imageSize.GetWidth()) / (GetImageScale() * GetScaleFactor());
+          double hImage = ((double)imageSize.GetHeight()) / (GetImageScale() * GetScaleFactor());
+          if (h <= 0 && wImage > 0)
+          {
+            h = (w <= 0) ? hImage : hImage * (w / wImage);
+          }
         }
-        context.AddHeight(h);
+        wxString strViewport = GetXmlAttribute(child, wxS("viewport"), wxS("0 0 0 0"));
+        const wxArrayDouble& vp = ApplyViewport(strViewport, w, h);
+        const double& vpHeight = vp[5];
+
+        context.AddHeight(vpHeight);
       }
     }
     else if (name == wxS("span"))
@@ -1072,7 +1132,7 @@ wxPdfDocument::PrepareXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       double charSpacing = 0;
       if (strCharSpacing.Length() > 0)
       {
-        charSpacing = wxPdfUtility::String2Double(strCharSpacing);
+        charSpacing = wxPdfUtility::String2Double(strCharSpacing, m_userUnit);
       }
       context.SetCharacterSpacing(charSpacing);
       PrepareXmlCell(child, context);
@@ -1089,7 +1149,7 @@ wxPdfDocument::PrepareXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       wxString strSize  = GetXmlAttribute(child, wxS("size"), wxS(""));
       if (strSize.Length() > 0)
       {
-        size = wxPdfUtility::String2Double(strSize);
+        size = wxPdfUtility::String2Double(strSize, "pt");
       }
       if (size <= 0) size = saveSize;
       SelectFont(strFace, saveStyle, size, false);
@@ -1107,7 +1167,7 @@ wxPdfDocument::PrepareXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       wxString strSize  = GetXmlAttribute(child, wxS("size"), wxS("10"));
       if (strSize.Length() > 0)
       {
-        size = wxPdfUtility::String2Double(strSize);
+        size = wxPdfUtility::String2Double(strSize, "pt");
       }
       if (size <= 0) size = saveSize;
       SelectFont(strFace, wxS(""), size, false);
@@ -1157,6 +1217,10 @@ wxPdfDocument::PrepareXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       SetFontSize(currentFontSize, false);
       Ln();
     }
+    else if (name == wxS("annotate"))
+    {
+      // Nothing to be done for annotations
+    }
     else if (name == wxS("table"))
     {
       // --- Table
@@ -1166,7 +1230,7 @@ wxPdfDocument::PrepareXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       double borderWidth = -1;
       if (hasBorder && strBorderWidth.Length() > 0)
       {
-        borderWidth = wxPdfUtility::String2Double(strBorderWidth);
+        borderWidth = wxPdfUtility::String2Double(strBorderWidth, m_userUnit);
         if (borderWidth < 0) borderWidth = -1;
       }
       wxString strBorderColour = GetXmlAttribute(child, wxS("bordercolor"), wxS(""));
@@ -1190,7 +1254,7 @@ wxPdfDocument::PrepareXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       wxString padding = GetXmlAttribute(child, wxS("cellpadding"), wxS("")).Lower();
       if (padding.Length() > 0)
       {
-        pad = wxPdfUtility::String2Double(padding);
+        pad = wxPdfUtility::String2Double(padding, m_userUnit);
         if (pad < 0) pad = 0;
       }
 
@@ -1241,7 +1305,7 @@ wxPdfDocument::PrepareXmlCell(wxXmlNode* node, wxPdfCellContext& context)
         double ls = 0;
         int ns = 0;
         int nl = 1;
-        wxChar c = 0;
+        wxUniChar c = 0;
         while (i < nb)
         {
           // Get next character
@@ -1276,29 +1340,37 @@ wxPdfDocument::PrepareXmlCell(wxXmlNode* node, wxPdfCellContext& context)
             // Automatic line break
             if (sep == -1)
             {
+              // No separator found
               ls = lastlen;
               if (context.GetLastLineWidth() > 0)
               {
+                // Line not empty
                 if (context.GetLastChar() == wxS(' '))
                 {
+                  // Last character in line was a space character
                   context.AddLastLineValues(-context.GetLastSpaceWidth(), -1);
                 }
+                // Restart on next line
                 i = j;
               }
               else
               {
+                // Line empty, force a break in the middle of a word
                 if (i == j)
                 {
+                  // Advance at least 1 character
                   i++;
                 }
+                context.AddLastLineValues(ls, ns);
               }
             }
             else
             {
+              // Separator found, restart from last separator on next line 
               i = sep + 1;
               ns--;
+              context.AddLastLineValues(ls, ns);
             }
-            context.AddLastLineValues(ls, ns);
             sep = -1;
             j = i;
             len = 0;
@@ -1338,14 +1410,14 @@ wxPdfDocument::WriteXml(const wxString& xmlString)
   {
     if (xmlDocument.IsOk())
     {
-      wxXmlNode* root = xmlDocument.GetRoot();
+      m_xmlRoot = xmlDocument.GetRoot();
       double maxWidth = GetPageWidth() - GetRightMargin() - GetX();
       wxPdfCellContext context(maxWidth, wxPDF_ALIGN_LEFT);
       double saveX = GetX();
       double saveY = GetY();
-      PrepareXmlCell(root, context);
+      PrepareXmlCell(m_xmlRoot, context);
       SetXY(saveX, saveY);
-      WriteXmlCell(root, context);
+      WriteXmlCell(m_xmlRoot, context);
     }
     else
     {
@@ -1369,6 +1441,7 @@ wxPdfDocument::WriteXml(wxXmlNode* node)
   {
     SetLineHeight(GetFontSize()*1.25 / GetScaleFactor());
   }
+  m_xmlRoot = node;
   double maxWidth = GetPageWidth() - GetRightMargin() - GetX();
   wxPdfCellContext context(maxWidth, wxPDF_ALIGN_LEFT);
   double saveX = GetX();
@@ -1452,13 +1525,13 @@ wxPdfDocument::WriteXmlCell(wxXmlNode* node, wxPdfCellContext& context)
     {
       // --- Unordered list
 #if wxUSE_UNICODE
-      static wxChar bulletChar = 0x2022;
-      static wxChar dashChar   = 0x2013;
+      static wxUniChar bulletChar = 0x2022;
+      static wxUniChar dashChar   = 0x2013;
 #else
-      static wxChar bulletChar = '\x95'; // dec 149
-      static wxChar dashChar   = '\x96'; // dec 150
+      static wxUniChar bulletChar = '\x95'; // dec 149
+      static wxUniChar dashChar   = '\x96'; // dec 150
 #endif
-      wxChar itemChar = bulletChar;
+      wxUniChar itemChar = bulletChar;
       bool useZapfDingBats = false;
       long zapfChar = 0;
       wxString type = GetXmlAttribute(child, wxS("type"), wxS("bullet"));
@@ -1581,12 +1654,12 @@ wxPdfDocument::WriteXmlCell(wxXmlNode* node, wxPdfCellContext& context)
           if (useZapfDingBats)
           {
             SetFont(wxS("zapfdingbats"), wxS(""), 0.85*saveSize);
-            wxChar itemChar = 172 + 10 * listType + listCount % listCycle;
+            wxUniChar itemChar = 172 + 10 * listType + listCount % listCycle;
             WriteCell(GetLineHeight(), wxString(itemChar));
           }
           else
           {
-            wxChar itemChar;
+            wxUniChar itemChar;
             SetFont(wxS("Helvetica"), wxS(""), saveSize);
             wxString item;
             switch (listType)
@@ -1647,7 +1720,10 @@ wxPdfDocument::WriteXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       {
         Ln();
       }
-      Ln();
+      if (!IsLastContentNode(child, m_xmlRoot))
+      {
+        Ln();
+      }
     }
     else if (name == wxS("hr"))
     {
@@ -1658,13 +1734,23 @@ wxPdfDocument::WriteXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       wxString strWidth = GetXmlAttribute(child, wxS("width"), wxS(""));
       if (strWidth.Length() > 0)
       {
-        widthAttr = wxPdfUtility::String2Double(strWidth);
+        widthAttr = wxPdfUtility::String2Double(strWidth, m_userUnit);
         hrWidth = hrWidth * 0.01 * widthAttr;
+      }
+      double lineWidth = 0;
+      wxString strLineWidth = GetXmlAttribute(child, wxS("linewidth"), wxS(""));
+      if (strLineWidth.Length() > 0)
+      {
+        lineWidth = wxPdfUtility::String2Double(strLineWidth, m_userUnit);
+      }
+      if (lineWidth == 0)
+      {
+        lineWidth = 0.2;
       }
       double x = GetX();
       double y = GetY();
       double wLine = GetLineWidth();
-      SetLineWidth(0.2);
+      SetLineWidth(lineWidth);
       Line(x, y, x + hrWidth, y);
       SetLineWidth(wLine);
       Ln();
@@ -1730,42 +1816,52 @@ wxPdfDocument::WriteXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       wxString src = GetXmlAttribute(child, wxS("src"), wxS(""));
       if (src.Length() > 0)
       {
-        wxSize imageSize = GetImageSize(src);
-        double wImage = ((double) imageSize.GetWidth()) / (GetImageScale() * GetScaleFactor());
-        double hImage = ((double) imageSize.GetHeight()) / (GetImageScale() * GetScaleFactor());
         double width = 0;
         double height = 0;
         wxString strWidth = GetXmlAttribute(child, wxS("width"), wxS("0"));
         wxString strHeight = GetXmlAttribute(child, wxS("height"), wxS("0"));
         if (strWidth.Length() > 0)
         {
-          width = wxPdfUtility::String2Double(strWidth);
+          width = wxPdfUtility::String2Double(strWidth, "px", GetImageScale());
         }
         if (strHeight.Length() > 0)
         {
-          height = wxPdfUtility::String2Double(strHeight);
+          height = wxPdfUtility::String2Double(strHeight, "px", GetImageScale());
         }
         double x = GetX();
         double y = GetY();
         double w = ((double) width) / (GetImageScale() * GetScaleFactor());
         double h = ((double) height) / (GetImageScale() * GetScaleFactor());
-        if (width <= 0 && wImage > 0)
+        if (width <= 0 || height <= 0)
         {
-          w = (height <= 0) ? wImage : wImage * (h / hImage);
+          wxSize imageSize = GetImageSize(src);
+          double wImage = ((double)imageSize.GetWidth()) / (GetImageScale() * GetScaleFactor());
+          double hImage = ((double)imageSize.GetHeight()) / (GetImageScale() * GetScaleFactor());
+          if (width <= 0 && wImage > 0)
+          {
+            w = (height <= 0) ? wImage : wImage * (h / hImage);
+          }
+          if (height <= 0 && wImage > 0)
+          {
+            h = (width <= 0) ? hImage : hImage * (w / wImage);
+          }
         }
-        if (height <= 0 && wImage > 0)
-        {
-          h = (width <= 0) ? hImage : hImage * (w / wImage);
-        }
+        wxString strViewport = GetXmlAttribute(child, wxS("viewport"), wxS("0 0 0 0"));
+        const wxArrayDouble& vp = ApplyViewport(strViewport, w, h);
+        const double& vpOffsetX = vp[0];
+        const double& vpOffsetY = vp[1];
+        const double& vpWidth = vp[4];
+        const double& vpHeight = vp[5];
+
         wxString align = GetXmlAttribute(child, wxS("align"), wxS("left")).Lower();
         double delta;
         if (align == wxS("right"))
         {
-          delta = context.GetMaxWidth() - w;
+          delta = context.GetMaxWidth() - vpWidth;
         }
         else if (align == wxS("center"))
         {
-          delta = 0.5 * (context.GetMaxWidth() - w);
+          delta = 0.5 * (context.GetMaxWidth() - vpWidth);
         }
         else
         {
@@ -1776,8 +1872,8 @@ wxPdfDocument::WriteXmlCell(wxXmlNode* node, wxPdfCellContext& context)
         {
           Ln();
         }
-        Image(src, x+delta, y, w, h);
-        SetXY(x, y+h);
+        Image(src, x - vpOffsetX + delta, y - vpOffsetY, w, h);
+        SetXY(x, y + vpHeight);
       }
     }
     else if (name == wxS("span"))
@@ -1796,7 +1892,7 @@ wxPdfDocument::WriteXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       double charSpacing = 0;
       if (strCharSpacing.Length() > 0)
       {
-        charSpacing = wxPdfUtility::String2Double(strCharSpacing);
+        charSpacing = wxPdfUtility::String2Double(strCharSpacing, m_userUnit);
       }
       context.SetCharacterSpacing(charSpacing);
       OutAscii(wxPdfUtility::Double2String(charSpacing * m_k, 3) + wxString(wxS(" Tc")));
@@ -1828,7 +1924,7 @@ wxPdfDocument::WriteXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       double size = 0;
       if (strSize.Length() > 0)
       {
-        size = wxPdfUtility::String2Double(strSize);
+        size = wxPdfUtility::String2Double(strSize, "pt");
       }
       if (size <= 0) size = saveSize;
       SetFont(strFace, saveStyle, size);
@@ -1856,7 +1952,7 @@ wxPdfDocument::WriteXmlCell(wxXmlNode* node, wxPdfCellContext& context)
       double size = 0;
       if (strSize.Length() > 0)
       {
-        size = wxPdfUtility::String2Double(strSize);
+        size = wxPdfUtility::String2Double(strSize, "pt");
       }
       if (size <= 0) size = saveSize;
       SetFont(strFace, wxS(""), size);
@@ -1903,6 +1999,10 @@ wxPdfDocument::WriteXmlCell(wxXmlNode* node, wxPdfCellContext& context)
         SetFontSize(currentFontSize);
       }
       Ln();
+    }
+    else if (name == wxS("annotate"))
+    {
+      Annotate(GetX(), GetY(), GetNodeContent(child));
     }
     else if (name == wxS("table"))
     {
@@ -1966,7 +2066,7 @@ wxPdfDocument::WriteXmlCell(wxXmlNode* node, wxPdfCellContext& context)
         double len = 0;
         int ns = 0;
         int nl = 1;
-        wxChar c;
+        wxUniChar c;
         while (i < nb)
         {
           // Get next character

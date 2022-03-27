@@ -114,10 +114,10 @@ public:
   void AppendContext(wxPdfCellContext* context);
 
   /// Remember the last character of the last chunk
-  void SetLastChar(wxChar c) { m_lastChar = c; }
+  void SetLastChar(wxUniChar c) { m_lastChar = c; }
 
   /// Get last character of previous chunk
-  wxChar GetLastChar() { return m_lastChar; }
+  wxUniChar GetLastChar() { return m_lastChar; }
 
   /// Remember the width of the last space character
   void SetLastSpaceWidth(double w) { m_spaceWidth = w; }
@@ -156,7 +156,7 @@ private:
   int              m_fillStyle;       ///< cell fill style
   wxPdfArrayDouble m_linewidth;       ///< list of line widths
   wxArrayInt       m_spaces;          ///< list of space counters
-  wxChar           m_lastChar;        ///< last character of a chunk
+  wxUniChar        m_lastChar;        ///< last character of a chunk
   double           m_spaceWidth;      ///< width of space character
   double           m_charSpacing;     ///< extra character spacing (default: 0)
   wxString         m_href;            ///< hyper link reference
@@ -309,8 +309,14 @@ public:
   /// Get total width of table
   double GetTotalWidth() { return m_totalWidth; }
 
+  /// Get height of table head
+  double GetHeadHeight() { return m_headHeight; }
+
+  /// Get height of table body
+  double GetBodyHeight() { return m_bodyHeight; }
+
   /// Get total height of table
-  double GetTotalHeight() { return m_totalHeight; }
+  double GetTotalHeight() { return m_headHeight + m_bodyHeight; }
 
   /// Set index of first header row
   void SetHeadRowFirst(unsigned int row) { m_headRowFirst = row; }
@@ -333,7 +339,7 @@ private:
 
   double             m_maxWidth;     ///< maximum allowed width
   double             m_totalWidth;   ///< total width
-  double             m_totalHeight;  ///< total height
+  double             m_bodyHeight;   ///< total height of table body
   double             m_headHeight;   ///< total height of table header
 
   unsigned int       m_headRowFirst; ///< index of first header row
