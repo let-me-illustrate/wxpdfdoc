@@ -47,24 +47,24 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <OutDir>..\lib\vc_lib\</OutDir>
     <IntDir>vcmswu\pdfdoc\</IntDir>
-    <TargetName>wxcode_msw31u_pdfdoc</TargetName>
+    <TargetName>wxcode_msw$(wxShortVersionString)u_pdfdoc</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <OutDir>..\lib\vc_lib\</OutDir>
     <IntDir>vcmswud\pdfdoc\</IntDir>
-    <TargetName>wxcode_msw31ud_pdfdoc</TargetName>
+    <TargetName>wxcode_msw$(wxShortVersionString)ud_pdfdoc</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
       <AdditionalOptions>/w44062 /w44263 /w44264 /w44265 /w44266 /w44289 /w44296 /w44545 /w44546 /w44547 /w44549 /w44555 /w44574 /w44986 /std:c++17</AdditionalOptions>
       <Optimization>MaxSpeed</Optimization>
       <AdditionalIncludeDirectories>..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;_LIB;_UNICODE;%(PreprocessorDefinitions);_HAS_AUTO_PTR_ETC</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_LIB;_UNICODE;wxNO_QA_LIB;wxNO_AUI_LIB;wxNO_PROPGRID_LIB;wxNO_RIBBON_LIB;wxNO_RICHTEXT_LIB;wxNO_MEDIA_LIB;wxNO_STC_LIB;wxNO_WEBVIEW_LIB;wxNO_GL_LIB;%(PreprocessorDefinitions);_HAS_AUTO_PTR_ETC</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
       <ObjectFileName>vcmswu\pdfdoc\</ObjectFileName>
-      <ProgramDataBaseFileName>..\lib\vc_lib\wxcode_msw31u_pdfdoc.pdb</ProgramDataBaseFileName>
+      <ProgramDataBaseFileName>..\lib\vc_lib\wxcode_msw$(wxShortVersionString)u_pdfdoc.pdb</ProgramDataBaseFileName>
       <WarningLevel>Level4</WarningLevel>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <DebugInformationFormat />
@@ -84,14 +84,14 @@
       <AdditionalOptions>/w44062 /w44263 /w44264 /w44265 /w44266 /w44289 /w44296 /w44545 /w44546 /w44547 /w44549 /w44555 /w44574 /w44986 /std:c++17</AdditionalOptions>
       <Optimization>Disabled</Optimization>
       <AdditionalIncludeDirectories>..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;_LIB;_UNICODE;_DEBUG;%(PreprocessorDefinitions);_HAS_AUTO_PTR_ETC</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_LIB;_UNICODE;_DEBUG;wxNO_QA_LIB;wxNO_AUI_LIB;wxNO_PROPGRID_LIB;wxNO_RIBBON_LIB;wxNO_RICHTEXT_LIB;wxNO_MEDIA_LIB;wxNO_STC_LIB;wxNO_WEBVIEW_LIB;wxNO_GL_LIB;%(PreprocessorDefinitions);_HAS_AUTO_PTR_ETC</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <BufferSecurityCheck>true</BufferSecurityCheck>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
       <ObjectFileName>vcmswud\pdfdoc\</ObjectFileName>
-      <ProgramDataBaseFileName>..\lib\vc_lib\wxcode_msw31ud_pdfdoc.pdb</ProgramDataBaseFileName>
+      <ProgramDataBaseFileName>..\lib\vc_lib\wxcode_msw$(wxShortVersionString)ud_pdfdoc.pdb</ProgramDataBaseFileName>
       <WarningLevel>Level4</WarningLevel>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
